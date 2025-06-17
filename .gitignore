@@ -8,7 +8,7 @@
 .streamlit/secrets.toml
 
 # Ignore the user authentication configuration file.
-config.yaml
+
 
 # --- Python Cache ---
 # Ignore compiled Python files and cache folders.
