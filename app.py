@@ -1,4 +1,4 @@
-# app.py
+# app.py - FINAL VERSION
 
 import streamlit as st
 import pandas as pd
@@ -7,20 +7,24 @@ from datetime import datetime
 import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
+import plotly.express as px
 
 # --- Page Configuration ---
 st.set_page_config(page_title="BeeHayv", layout="wide", page_icon="🐝")
 
 # --- Load User Authentication Config ---
-with open('config.yaml') as file:
-    config = yaml.load(file, Loader=SafeLoader)
+try:
+    with open('config.yaml') as file:
+        config = yaml.load(file, Loader=SafeLoader)
+except FileNotFoundError:
+    st.error("Authentication configuration file (`config.yaml`) not found. Please ensure it exists in your repository.")
+    st.stop()
 
 authenticator = stauth.Authenticate(
     config['credentials'],
     config['cookie']['name'],
     config['cookie']['key'],
-    config['cookie']['expiry_days'],
-    
+    config['cookie']['expiry_days']
 )
 
 # --- Render Login Form FIRST ---
@@ -34,15 +38,15 @@ if st.session_state["authentication_status"]:
     username = st.session_state["username"]
 
     # --- Initialize The Engine AFTER Login ---
-    # This uses the Supabase connection string from secrets
     try:
+        # This uses the Supabase connection string from secrets
         if 'tracker' not in st.session_state:
             conn_string = st.secrets["SUPABASE_CONNECTION_STRING"]
             st.session_state.tracker = BehaviorTracker(conn_string)
         tracker = st.session_state.tracker
     except Exception as e:
-        st.error("Database connection failed. Please check your secrets configuration.")
-        st.error(e)
+        st.error("Database connection failed. Please check your secrets configuration on Streamlit Cloud.")
+        st.error(f"Details: {e}")
         st.stop()
     
     # --- Main App UI ---
@@ -50,9 +54,8 @@ if st.session_state["authentication_status"]:
     st.write("Welcome to your private behavior tracking dashboard.")
     st.divider()
     
-    # ... (The rest of the UI forms and logic go here) ...
     st.header("1. Data Entry")
-    # Fetch data for the current user
+    # Fetch data for the current user once at the top
     user_subjects_df = tracker.get_subjects(username)
     user_defs_df = tracker.get_definitions(username)
 
@@ -85,23 +88,23 @@ if st.session_state["authentication_status"]:
             if user_defs_df.empty:
                 st.warning("Define a behavior first.")
             else:
-                # This creates the user-friendly labels for the dropdown
-                definition_options = pd.Series(user_defs_df['subjectlabel'] + " - " + user_defs_df['behaviorname'], index=user_defs_df['definitionid'].values).to_dict()
-
-                # The form starts here
+                # Sanitize data to prevent TypeErrors from missing values
+                safe_subject_labels = user_defs_df['subjectlabel'].fillna('')
+                safe_behavior_names = user_defs_df['behaviorname'].fillna('')
+                user_defs_df['display_label'] = safe_subject_labels + " - " + safe_behavior_names
+                
+                definition_options = pd.Series(user_defs_df['display_label'].values, index=user_defs_df['definitionid'].values).to_dict()
+                
                 with st.form("log_score_form", clear_on_submit=True):
-                    # All of these elements are correctly indented inside the form
                     options_as_strings = [str(k) for k in definition_options.keys()]
                     selected_definition_id_str = st.selectbox(
                         "Select Behavior to Score",
-                         options=options_as_strings,
-                         format_func=lambda x: definition_options.get(int(x), "Invalid Behavior")
+                        options=options_as_strings,
+                        format_func=lambda x: definition_options.get(int(x), "Invalid Behavior")
                     )
                     score_date = st.date_input("Date of Observation", value=datetime.now())
                     score_value = st.slider("Score (1-10)", 1, 10, 5)
                     score_notes = st.text_area("Optional Notes")
-
-                    # The submit button is also correctly indented, inside the form
                     submitted = st.form_submit_button("Log Score")
 
                     if submitted and selected_definition_id_str:
@@ -109,3 +112,52 @@ if st.session_state["authentication_status"]:
                         tracker.log_score(username, definition_id_to_log, score_date, score_value, score_notes)
                         st.success(f"Logged score of {score_value}.")
                         st.rerun()
+    st.divider()
+
+    # --- Section 2: Analysis & Plotting ---
+    st.header("2. Analysis & Plotting")
+
+    if st.button("📈 Calculate Averages", type="primary", help="Recalculate all averages based on the current score log."):
+        with st.spinner("Calculating..."):
+            weekly_df, monthly_df, _ = tracker.calculate_all_averages(username)
+            st.session_state.weekly_df = weekly_df
+            st.session_state.monthly_df = monthly_df
+            st.success("Averages have been calculated!")
+
+    if 'weekly_df' in st.session_state:
+        st.subheader("Progress Charts")
+        if user_defs_df.empty:
+            st.warning("No behaviors defined to plot.")
+        else:
+            plot_col1, plot_col2 = st.columns([1, 2])
+            with plot_col1:
+                definition_options = pd.Series(user_defs_df['subjectlabel'] + " - " + user_defs_df['behaviorname'], index=user_defs_df['definitionid'].values).to_dict()
+                behavior_to_plot_str = st.selectbox("Select Behavior to Plot", options=[str(k) for k in definition_options.keys()], format_func=lambda x: definition_options.get(int(x)))
+                period_to_plot = st.radio("Select Period", ["Weekly", "Monthly"], horizontal=True)
+
+            with plot_col2:
+                if period_to_plot == "Weekly":
+                    avg_df = st.session_state.weekly_df
+                    if not avg_df.empty:
+                        avg_df['Time Period'] = avg_df['year'].astype(str) + "-W" + avg_df['weekofyear'].astype(str).str.zfill(2)
+                    x_axis, y_axis = 'Time Period', 'averagescore'
+                else: # Monthly
+                    avg_df = st.session_state.monthly_df
+                    if not avg_df.empty:
+                        avg_df['Time Period'] = pd.to_datetime(avg_df[['year', 'month']].assign(DAY=1)).dt.strftime('%Y-%b')
+                    x_axis, y_axis = 'Time Period', 'averagescore'
+
+                if not avg_df.empty:
+                    behavior_to_plot = int(behavior_to_plot_str)
+                    plot_data = avg_df[avg_df['definitionid'] == behavior_to_plot].sort_values(by='Time Period')
+                    if not plot_data.empty:
+                        fig = px.line(plot_data, x=x_axis, y=y_axis, title=f"{period_to_plot} Progress for {definition_options.get(behavior_to_plot, 'N/A')}", markers=True, labels={x_axis: "Time Period", y_axis: "Average Score"})
+                        fig.update_yaxes(range=[0, 11])
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("No calculated averages to plot for this specific behavior yet.")
+
+elif st.session_state["authentication_status"] is False:
+    st.error('Username/password is incorrect')
+elif st.session_state["authentication_status"] is None:
+    st.warning('Please login. Contact an administrator to create an account.')
