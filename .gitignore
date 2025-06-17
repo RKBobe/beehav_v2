@@ -1,0 +1,25 @@
+# --- Environment ---
+# Ignore the entire Python virtual environment folder. This is large,
+# system-specific, and should never be committed.
+.venv/
+
+# --- Secrets and Config ---
+# CRITICAL: Ignore the Streamlit secrets file containing database credentials.
+.streamlit/secrets.toml
+
+# Ignore the user authentication configuration file.
+config.yaml
+
+# --- Python Cache ---
+# Ignore compiled Python files and cache folders.
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- IDE/OS Specific ---
+# Ignore VS Code editor settings folder.
+.vscode/
+
+# Ignore macOS folder attributes file.
+.DS_Store
