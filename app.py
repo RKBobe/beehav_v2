@@ -81,23 +81,43 @@ if st.session_state["authentication_status"]:
                         st.success(f"Defined '{new_behavior_name}'.")
                         st.rerun()
     with col2:
+       # This is the corrected block for your app.py file
+
         with st.expander("📝 Log a Daily Score", expanded=True):
+            user_defs_df = tracker.get_definitions(username)
             if user_defs_df.empty:
                 st.warning("Define a behavior first.")
             else:
-                definition_options = pd.Series(user_defs_df['subjectlabel'] + " - " + user_defs_df['behaviorname'], index=user_defs_df['definitionid'].values).to_dict()
-                with st.form("log_score_form", clear_on_submit=True):
-                    selected_definition_id = st.selectbox("Select Behavior to Score", options=list(definition_options.keys()), format_func=lambda x: definition_options.get(x))
-                    score_date = st.date_input("Date of Observation", value=datetime.now())
-                    score_value = st.slider("Score (1-10)", 1, 10, 5)
-                    score_notes = st.text_area("Optional Notes")
-                    submitted = st.form_submit_button("Log Score")
-                    if submitted and selected_definition_id:
-                        tracker.log_score(username, selected_definition_id, score_date, score_value, score_notes)
-                        st.success(f"Logged score of {score_value}.")
-                        st.rerun()
+        # Create a user-friendly dictionary for display
+                definition_options = pd.Series(
+                    (user_defs_df['subjectlabel'] + " - " + user_defs_df['behaviorname']).values,
+                    index=user_defs_df['definitionid'].values
+                ).to_dict()
 
-elif st.session_state["authentication_status"] is False:
-    st.error('Username/password is incorrect')
-elif st.session_state["authentication_status"] is None:
-    st.warning('Please login. User registration is not available.')
+            with st.form("log_score_form", clear_on_submit=True):
+            
+                # --- START OF THE FIX ---
+                # 1. Convert the option keys (the IDs) to strings for Streamlit
+                options_as_strings = [str(k) for k in definition_options.keys()]
+
+            # 2. Use the string list for options. The format_func will look up the display name.
+            #    We convert x back to an int for the dictionary lookup.
+            selected_definition_id_str = st.selectbox(
+                "Select Behavior to Score",
+                options=options_as_strings,
+                format_func=lambda x: definition_options.get(int(x), "Invalid Behavior")
+            )
+            # --- END OF THE FIX ---
+
+            score_date = st.date_input("Date of Observation", value=datetime.now())
+            score_value = st.slider("Score (1-10)", 1, 10, 5)
+            score_notes = st.text_area("Optional Notes")
+            
+            submitted = st.form_submit_button("Log Score")
+
+            if submitted and selected_definition_id_str:
+                # Convert the selected string ID back to an integer for the engine
+                definition_id_to_log = int(selected_definition_id_str)
+                tracker.log_score(username, definition_id_to_log, score_date, score_value, score_notes)
+                st.success(f"Logged score of {score_value}.")
+                st.rerun()
