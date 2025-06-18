@@ -4,6 +4,10 @@ credentials:
       email: rkbeaubouef@gmail.com
       name: Kyle Beaubouef
       password: '$2b$12$9Am6qz2j63TZbb25Idi9heoWNppoCnLXmFylQ9HpGMli3oJz62a1K'
+    WolvenReaper:
+      email: Cmanley68w@gmail.com
+      name: Cody
+      password: '$2b$12$.ndIpGjPpAVyhSe1UjyFoOwe.jYRXG/I8mZPlelCTDVfUgtLlBdUO'
 cookie:
   expiry_days: 30
   key: 'a_random_secret_key_123'
