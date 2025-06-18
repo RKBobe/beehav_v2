@@ -1,4 +1,4 @@
-# app.py - FINAL VERSION
+# app.py - FINAL HARDENED VERSION
 
 import streamlit as st
 import pandas as pd
@@ -16,16 +16,18 @@ st.set_page_config(page_title="BeeHayv", layout="wide", page_icon="🐝")
 try:
     with open('config.yaml') as file:
         config = yaml.load(file, Loader=SafeLoader)
+
+    authenticator = stauth.Authenticate(
+        config['credentials'],
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days']
+    )
+
 except FileNotFoundError:
-    st.error("Authentication configuration file (`config.yaml`) not found. Please ensure it exists in your repository.")
+    st.error("Authentication configuration file (`config.yaml`) not found. Please ensure it is in your repository.")
     st.stop()
 
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
-)
 
 # --- Render Login Form FIRST ---
 authenticator.login()
@@ -97,11 +99,7 @@ if st.session_state["authentication_status"]:
                 
                 with st.form("log_score_form", clear_on_submit=True):
                     options_as_strings = [str(k) for k in definition_options.keys()]
-                    selected_definition_id_str = st.selectbox(
-                        "Select Behavior to Score",
-                        options=options_as_strings,
-                        format_func=lambda x: definition_options.get(int(x), "Invalid Behavior")
-                    )
+                    selected_definition_id_str = st.selectbox("Select Behavior to Score", options=options_as_strings, format_func=lambda x: definition_options.get(int(x), "Invalid Behavior"))
                     score_date = st.date_input("Date of Observation", value=datetime.now())
                     score_value = st.slider("Score (1-10)", 1, 10, 5)
                     score_notes = st.text_area("Optional Notes")
@@ -112,9 +110,9 @@ if st.session_state["authentication_status"]:
                         tracker.log_score(username, definition_id_to_log, score_date, score_value, score_notes)
                         st.success(f"Logged score of {score_value}.")
                         st.rerun()
+    
     st.divider()
 
-    # --- Section 2: Analysis & Plotting ---
     st.header("2. Analysis & Plotting")
 
     if st.button("📈 Calculate Averages", type="primary", help="Recalculate all averages based on the current score log."):
@@ -124,38 +122,46 @@ if st.session_state["authentication_status"]:
             st.session_state.monthly_df = monthly_df
             st.success("Averages have been calculated!")
 
-    if 'weekly_df' in st.session_state:
+    if 'weekly_df' in st.session_state and not st.session_state.weekly_df.empty:
         st.subheader("Progress Charts")
         if user_defs_df.empty:
             st.warning("No behaviors defined to plot.")
         else:
             plot_col1, plot_col2 = st.columns([1, 2])
             with plot_col1:
-                definition_options = pd.Series(user_defs_df['subjectlabel'] + " - " + user_defs_df['behaviorname'], index=user_defs_df['definitionid'].values).to_dict()
-                behavior_to_plot_str = st.selectbox("Select Behavior to Plot", options=[str(k) for k in definition_options.keys()], format_func=lambda x: definition_options.get(int(x)))
+                # Sanitize data for the plotting dropdown as well
+                safe_plot_subject_labels = user_defs_df['subjectlabel'].fillna('')
+                safe_plot_behavior_names = user_defs_df['behaviorname'].fillna('')
+                plot_display_labels = safe_plot_subject_labels + " - " + safe_plot_behavior_names
+                
+                plot_definition_options = pd.Series(plot_display_labels.values, index=user_defs_df['definitionid'].values).to_dict()
+                
+                behavior_to_plot_str = st.selectbox("Select Behavior to Plot", options=[str(k) for k in plot_definition_options.keys()], format_func=lambda x: plot_definition_options.get(int(x)))
                 period_to_plot = st.radio("Select Period", ["Weekly", "Monthly"], horizontal=True)
 
             with plot_col2:
-                if period_to_plot == "Weekly":
-                    avg_df = st.session_state.weekly_df
-                    if not avg_df.empty:
-                        avg_df['Time Period'] = avg_df['year'].astype(str) + "-W" + avg_df['weekofyear'].astype(str).str.zfill(2)
-                    x_axis, y_axis = 'Time Period', 'averagescore'
-                else: # Monthly
-                    avg_df = st.session_state.monthly_df
-                    if not avg_df.empty:
-                        avg_df['Time Period'] = pd.to_datetime(avg_df[['year', 'month']].assign(DAY=1)).dt.strftime('%Y-%b')
-                    x_axis, y_axis = 'Time Period', 'averagescore'
-
-                if not avg_df.empty:
+                if 'behavior_to_plot_str' in locals() and behavior_to_plot_str:
                     behavior_to_plot = int(behavior_to_plot_str)
-                    plot_data = avg_df[avg_df['definitionid'] == behavior_to_plot].sort_values(by='Time Period')
-                    if not plot_data.empty:
-                        fig = px.line(plot_data, x=x_axis, y=y_axis, title=f"{period_to_plot} Progress for {definition_options.get(behavior_to_plot, 'N/A')}", markers=True, labels={x_axis: "Time Period", y_axis: "Average Score"})
-                        fig.update_yaxes(range=[0, 11])
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No calculated averages to plot for this specific behavior yet.")
+                    
+                    if period_to_plot == "Weekly":
+                        avg_df = st.session_state.weekly_df
+                        if not avg_df.empty:
+                            avg_df['Time Period'] = avg_df['year'].astype(str) + "-W" + avg_df['weekofyear'].astype(str).str.zfill(2)
+                        x_axis, y_axis = 'Time Period', 'averagescore'
+                    else: # Monthly
+                        avg_df = st.session_state.monthly_df
+                        if not avg_df.empty:
+                            avg_df['Time Period'] = pd.to_datetime(avg_df[['year', 'month']].assign(DAY=1)).dt.strftime('%Y-%b')
+                        x_axis, y_axis = 'Time Period', 'averagescore'
+
+                    if not avg_df.empty:
+                        plot_data = avg_df[avg_df['definitionid'] == behavior_to_plot].sort_values(by='Time Period')
+                        if not plot_data.empty:
+                            fig = px.line(plot_data, x=x_axis, y=y_axis, title=f"{period_to_plot} Progress for {plot_definition_options.get(behavior_to_plot, 'N/A')}", markers=True, labels={x_axis: "Time Period", y_axis: "Average Score"})
+                            fig.update_yaxes(range=[0, 11])
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("No calculated averages to plot for this specific behavior yet.")
 
 elif st.session_state["authentication_status"] is False:
     st.error('Username/password is incorrect')
