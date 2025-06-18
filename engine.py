@@ -1,4 +1,4 @@
-# engine.py
+# engine.py - FINAL VERSION
 
 import pandas as pd
 from datetime import datetime
@@ -23,18 +23,27 @@ class BehaviorTracker:
         """Ensures all necessary tables exist in the database."""
         create_subjects_table = text("""
         CREATE TABLE IF NOT EXISTS subjects (
-            SubjectID SERIAL PRIMARY KEY, username TEXT NOT NULL, SubjectLabel TEXT NOT NULL,
+            SubjectID SERIAL PRIMARY KEY,
+            username TEXT NOT NULL,
+            SubjectLabel TEXT NOT NULL,
             DateCreated TIMESTAMPTZ DEFAULT NOW()
         );""")
         create_definitions_table = text("""
         CREATE TABLE IF NOT EXISTS definitions (
-            DefinitionID SERIAL PRIMARY KEY, SubjectID INT REFERENCES subjects(SubjectID) ON DELETE CASCADE,
-            username TEXT NOT NULL, BehaviorName TEXT NOT NULL, Description TEXT
+            DefinitionID SERIAL PRIMARY KEY,
+            SubjectID INT REFERENCES subjects(SubjectID) ON DELETE CASCADE,
+            username TEXT NOT NULL,
+            BehaviorName TEXT NOT NULL,
+            Description TEXT
         );""")
         create_scores_table = text("""
         CREATE TABLE IF NOT EXISTS daily_scores (
-            LogID SERIAL PRIMARY KEY, DefinitionID INT REFERENCES definitions(DefinitionID) ON DELETE CASCADE,
-            username TEXT NOT NULL, Date DATE NOT NULL, Score INT, Notes TEXT
+            LogID SERIAL PRIMARY KEY,
+            DefinitionID INT REFERENCES definitions(DefinitionID) ON DELETE CASCADE,
+            username TEXT NOT NULL,
+            Date DATE NOT NULL,
+            Score INT CHECK (Score >= 1 AND Score <= 10),
+            Notes TEXT
         );""")
         with self.engine.connect() as connection:
             connection.execute(create_subjects_table)
@@ -45,7 +54,7 @@ class BehaviorTracker:
 
     # --- DATA READING METHODS ---
     def get_subjects(self, username):
-        sql = text("SELECT * FROM subjects WHERE username = :user")
+        sql = text("SELECT * FROM subjects WHERE username = :user ORDER BY SubjectLabel")
         with self.engine.connect() as connection:
             return pd.read_sql(sql, connection, params={"user": username})
 
@@ -55,12 +64,13 @@ class BehaviorTracker:
             SELECT d.*, s.SubjectLabel 
             FROM definitions d JOIN subjects s ON d.SubjectID = s.SubjectID
             WHERE d.username = :user
+            ORDER BY s.SubjectLabel, d.BehaviorName
         """)
         with self.engine.connect() as connection:
             return pd.read_sql(sql, connection, params={"user": username})
 
     def get_daily_scores(self, username):
-        sql = text("SELECT * FROM daily_scores WHERE username = :user")
+        sql = text("SELECT * FROM daily_scores WHERE username = :user ORDER BY Date DESC")
         with self.engine.connect() as connection:
             return pd.read_sql(sql, connection, params={"user": username})
 
@@ -85,3 +95,41 @@ class BehaviorTracker:
         with self.engine.connect() as connection:
             connection.execute(sql, params)
             connection.commit()
+            
+    # --- DATA PROCESSING ---
+    def calculate_all_averages(self, username):
+        """Fetches a user's scores and calculates averages in memory."""
+        print(f"\n--- Calculating All Averages for user: {username} ---")
+        scores_df = self.get_daily_scores(username)
+        
+        if scores_df.empty:
+            print("No daily scores for this user to calculate.")
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+        # Create a safe copy to modify
+        scores_df = scores_df.copy()
+
+        # Robustly convert data types, handling potential errors
+        scores_df['date'] = pd.to_datetime(scores_df['date'], errors='coerce')
+        scores_df.dropna(subset=['date'], inplace=True)
+        scores_df['score'] = pd.to_numeric(scores_df['score'], errors='coerce')
+        scores_df.dropna(subset=['score'], inplace=True)
+
+        if scores_df.empty:
+            print("No valid scores left after cleaning. Cannot calculate averages.")
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        
+        scores_df['score'] = scores_df['score'].astype(int)
+        scores_df['year'] = scores_df['date'].dt.isocalendar().year
+        
+        # Weekly Averages
+        scores_df['weekofyear'] = scores_df['date'].dt.isocalendar().week
+        weekly_avg = scores_df.groupby(['definitionid', 'year', 'weekofyear'])['score'].agg(['mean', 'count']).reset_index()
+        weekly_avg.rename(columns={'mean': 'averagescore', 'count': 'datapointscount'}, inplace=True)
+        
+        # Monthly Averages
+        scores_df['month'] = scores_df['date'].dt.month
+        monthly_avg = scores_df.groupby(['definitionid', 'year', 'month'])['score'].agg(['mean', 'count']).reset_index()
+        monthly_avg.rename(columns={'mean': 'averagescore', 'count': 'datapointscount'}, inplace=True)
+        
+        return weekly_avg, monthly_avg, pd.DataFrame() # Return empty DF for semi-annual for now
