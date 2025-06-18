@@ -12,6 +12,10 @@ credentials:
       email: K.fussell@hotmail.com
       name: Kaitlyn
       password: '$2b$12$Ss9Wus9AZyYH6L0quZZYj./8.5f9/Ks6yDYxPgNbu4xXaDWF9uYNq'
+    ItsNaeNae93:
+      email: Mirandacross60@gmail.com
+      name: Miranda
+      password: '$2b$12$TsnVe6OfeSlMnsHc70TvXeA2IWZeVBHds6IJoMbKV6kVqMh23CElO'
 cookie:
   expiry_days: 30
   key: 'a_random_secret_key_123'
