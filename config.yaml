@@ -8,6 +8,10 @@ credentials:
       email: Cmanley68w@gmail.com
       name: Cody
       password: '$2b$12$.ndIpGjPpAVyhSe1UjyFoOwe.jYRXG/I8mZPlelCTDVfUgtLlBdUO'
+      KDeville7:
+      email: K.fussell@hotmail.com
+      name: Kaitlyn
+      password: '$2b$12$Ss9Wus9AZyYH6L0quZZYj./8.5f9/Ks6yDYxPgNbu4xXaDWF9uYNq'
 cookie:
   expiry_days: 30
   key: 'a_random_secret_key_123'
