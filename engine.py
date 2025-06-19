@@ -1,135 +1,74 @@
-# engine.py - FINAL VERSION
+# engine.py
 
+import requests
 import pandas as pd
-from datetime import datetime
-from sqlalchemy import create_engine, text
+from datetime import date
 
 class BehaviorTracker:
-    def __init__(self, db_connection_string):
+    def __init__(self, base_api_url: str):
         """
-        Initializes the engine by connecting to the Supabase (PostgreSQL) database.
+        Initializes the engine with the base URL of the FastAPI server.
         """
-        print("--- Instantiating Supabase-Driven BehaviorTracker Engine ---")
-        try:
-            # Create a SQLAlchemy engine. This object manages connections to the DB.
-            self.engine = create_engine(db_connection_string)
-            self._initialize_database()
-            print("--- Engine is ready and connected to Supabase DB. ---")
-        except Exception as e:
-            print(f"🔥 DATABASE CONNECTION FAILED: {e}")
-            raise e
+        self.base_url = base_api_url
+        self.headers = {"accept": "application/json"}
 
-    def _initialize_database(self):
-        """Ensures all necessary tables exist in the database."""
-        create_subjects_table = text("""
-        CREATE TABLE IF NOT EXISTS subjects (
-            SubjectID SERIAL PRIMARY KEY,
-            username TEXT NOT NULL,
-            SubjectLabel TEXT NOT NULL,
-            DateCreated TIMESTAMPTZ DEFAULT NOW()
-        );""")
-        create_definitions_table = text("""
-        CREATE TABLE IF NOT EXISTS definitions (
-            DefinitionID SERIAL PRIMARY KEY,
-            SubjectID INT REFERENCES subjects(SubjectID) ON DELETE CASCADE,
-            username TEXT NOT NULL,
-            BehaviorName TEXT NOT NULL,
-            Description TEXT
-        );""")
-        create_scores_table = text("""
-        CREATE TABLE IF NOT EXISTS daily_scores (
-            LogID SERIAL PRIMARY KEY,
-            DefinitionID INT REFERENCES definitions(DefinitionID) ON DELETE CASCADE,
-            username TEXT NOT NULL,
-            Date DATE NOT NULL,
-            Score INT CHECK (Score >= 1 AND Score <= 10),
-            Notes TEXT
-        );""")
-        with self.engine.connect() as connection:
-            connection.execute(create_subjects_table)
-            connection.execute(create_definitions_table)
-            connection.execute(create_scores_table)
-            connection.commit()
-        print("Database tables verified.")
+    def _make_request(self, method: str, endpoint: str, **kwargs):
+        """A helper method to make requests and handle errors."""
+        try:
+            response = requests.request(method, f"{self.base_url}{endpoint}", headers=self.headers, **kwargs)
+            response.raise_for_status() # Raises an error for bad status codes (4xx or 5xx)
+            if response.status_code == 204: # No Content success status (for DELETE)
+                return None
+            return response.json()
+        except requests.exceptions.HTTPError as http_err:
+            print(f"HTTP error occurred: {http_err} - {response.text}")
+            raise
+        except Exception as err:
+            print(f"Other error occurred: {err}")
+            raise
 
     # --- DATA READING METHODS ---
-    def get_subjects(self, username):
-        sql = text("SELECT * FROM subjects WHERE username = :user ORDER BY SubjectLabel")
-        with self.engine.connect() as connection:
-            return pd.read_sql(sql, connection, params={"user": username})
+    def get_subjects(self, username: str) -> pd.DataFrame:
+        data = self._make_request("get", "/subjects")
+        return pd.DataFrame(data)
 
-    def get_definitions(self, username):
-        # We join with subjects to get the subject label for display purposes
-        sql = text("""
-            SELECT d.*, s.SubjectLabel 
-            FROM definitions d JOIN subjects s ON d.SubjectID = s.SubjectID
-            WHERE d.username = :user
-            ORDER BY s.SubjectLabel, d.BehaviorName
-        """)
-        with self.engine.connect() as connection:
-            return pd.read_sql(sql, connection, params={"user": username})
+    def get_definitions(self, username: str) -> pd.DataFrame:
+        data = self._make_request("get", "/definitions")
+        return pd.DataFrame(data)
 
-    def get_daily_scores(self, username):
-        sql = text("SELECT * FROM daily_scores WHERE username = :user ORDER BY Date DESC")
-        with self.engine.connect() as connection:
-            return pd.read_sql(sql, connection, params={"user": username})
+    def get_daily_scores(self, username: str) -> pd.DataFrame:
+        data = self._make_request("get", "/scores")
+        return pd.DataFrame(data)
+        
+    def get_all_averages(self, username: str):
+        data = self._make_request("get", "/averages")
+        weekly_df = pd.DataFrame(data.get('weekly', []))
+        monthly_df = pd.DataFrame(data.get('monthly', []))
+        return weekly_df, monthly_df
 
     # --- DATA WRITING METHODS ---
-    def add_subject(self, username, subject_label):
-        sql = text("INSERT INTO subjects (username, SubjectLabel, DateCreated) VALUES (:user, :label, :date)")
-        params = {"user": username, "label": subject_label.strip(), "date": datetime.now()}
-        with self.engine.connect() as connection:
-            connection.execute(sql, params)
-            connection.commit()
+    def add_subject(self, username: str, subject_label: str):
+        return self._make_request("post", "/subjects", json={"subject_label": subject_label})
 
-    def add_behavior_definition(self, username, subject_id, behavior_name, description=""):
-        sql = text("INSERT INTO definitions (SubjectID, username, BehaviorName, Description) VALUES (:sid, :user, :bname, :desc)")
-        params = {"sid": subject_id, "user": username, "bname": behavior_name.strip(), "desc": description.strip()}
-        with self.engine.connect() as connection:
-            connection.execute(sql, params)
-            connection.commit()
+    def add_behavior_definition(self, username: str, subject_id: int, behavior_name: str, description: str = ""):
+        payload = {"subject_id": subject_id, "behavior_name": behavior_name, "description": description}
+        return self._make_request("post", "/definitions", json=payload)
 
-    def log_score(self, username, definition_id, date, score, notes=""):
-        sql = text("INSERT INTO daily_scores (DefinitionID, username, Date, Score, Notes) VALUES (:did, :user, :date, :score, :notes)")
-        params = {"did": definition_id, "user": username, "date": date, "score": score, "notes": notes.strip()}
-        with self.engine.connect() as connection:
-            connection.execute(sql, params)
-            connection.commit()
-            
-    # --- DATA PROCESSING ---
-    def calculate_all_averages(self, username):
-        """Fetches a user's scores and calculates averages in memory."""
-        print(f"\n--- Calculating All Averages for user: {username} ---")
-        scores_df = self.get_daily_scores(username)
+    def log_score(self, username: str, definition_id: int, score_date: date, score: int, notes: str = ""):
+        payload = {"definition_id": definition_id, "score_date": score_date.isoformat(), "score": score, "notes": notes}
+        return self._make_request("post", "/scores", json=payload)
         
-        if scores_df.empty:
-            print("No daily scores for this user to calculate.")
-            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    # --- EDITING METHODS ---
+    def update_subject(self, username: str, subject_id: int, new_label: str):
+        return self._make_request("put", f"/subjects/{subject_id}", json={"subject_label": new_label})
 
-        # Create a safe copy to modify
-        scores_df = scores_df.copy()
+    def update_definition(self, username: str, definition_id: int, new_name: str, new_description: str):
+        payload = {"behavior_name": new_name, "description": new_description}
+        return self._make_request("put", f"/definitions/{definition_id}", json=payload)
 
-        # Robustly convert data types, handling potential errors
-        scores_df['date'] = pd.to_datetime(scores_df['date'], errors='coerce')
-        scores_df.dropna(subset=['date'], inplace=True)
-        scores_df['score'] = pd.to_numeric(scores_df['score'], errors='coerce')
-        scores_df.dropna(subset=['score'], inplace=True)
-
-        if scores_df.empty:
-            print("No valid scores left after cleaning. Cannot calculate averages.")
-            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    # --- DELETING METHODS ---
+    def delete_subject(self, username: str, subject_id: int):
+        return self._make_request("delete", f"/subjects/{subject_id}")
         
-        scores_df['score'] = scores_df['score'].astype(int)
-        scores_df['year'] = scores_df['date'].dt.isocalendar().year
-        
-        # Weekly Averages
-        scores_df['weekofyear'] = scores_df['date'].dt.isocalendar().week
-        weekly_avg = scores_df.groupby(['definitionid', 'year', 'weekofyear'])['score'].agg(['mean', 'count']).reset_index()
-        weekly_avg.rename(columns={'mean': 'averagescore', 'count': 'datapointscount'}, inplace=True)
-        
-        # Monthly Averages
-        scores_df['month'] = scores_df['date'].dt.month
-        monthly_avg = scores_df.groupby(['definitionid', 'year', 'month'])['score'].agg(['mean', 'count']).reset_index()
-        monthly_avg.rename(columns={'mean': 'averagescore', 'count': 'datapointscount'}, inplace=True)
-        
-        return weekly_avg, monthly_avg, pd.DataFrame() # Return empty DF for semi-annual for now
+    def delete_definition(self, username: str, definition_id: int):
+        return self._make_request("delete", f"/definitions/{definition_id}")

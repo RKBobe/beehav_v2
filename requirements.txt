@@ -2,6 +2,9 @@ streamlit
 streamlit-authenticator
 bcrypt
 pandas
-plotly
 psycopg2-binary
 SQLAlchemy
+fastapi
+uvicorn[standard]
+requests
+python-dotenv
