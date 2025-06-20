@@ -1,10 +1,10 @@
 streamlit
+pandas
+plotly
 streamlit-authenticator
 bcrypt
-pandas
+requests
 psycopg2-binary
 SQLAlchemy
-fastapi
-uvicorn[standard]
-requests
 python-dotenv
+PyYAML
