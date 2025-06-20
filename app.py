@@ -56,7 +56,7 @@ if st.session_state["authentication_status"]:
     st.write("This app is now powered by the FastAPI backend.")
     st.divider()
 
-    tab1, tab2, tab3 = st.tabs(["📊 Data Entry & Plotting", "⚙️ Data Management", "📚 Raw Data Tables"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Data Entry & Plotting", "⚙️ Data Management", "📚 Raw Data Tables", "📝 Submit Feedback"])
 
     # --- Fetch data once for all tabs ---
     user_subjects_df = tracker.get_subjects(username)
@@ -110,7 +110,6 @@ if st.session_state["authentication_status"]:
                 st.session_state.weekly_df = weekly_df
                 st.session_state.monthly_df = monthly_df
                 st.success("Averages calculated!")
-        
         if 'weekly_df' in st.session_state:
             st.subheader("Progress Charts")
             if user_defs_df.empty:
@@ -118,34 +117,28 @@ if st.session_state["authentication_status"]:
             else:
                 plot_col1, plot_col2 = st.columns([1, 2])
                 with plot_col1:
-                    # Sanitize data for the plotting dropdown as well
                     user_defs_df['plot_display_label'] = user_defs_df['subjectlabel'].fillna('') + " - " + user_defs_df['behaviorname'].fillna('')
                     plot_definition_options = pd.Series(user_defs_df['plot_display_label'].values, index=user_defs_df['definitionid'].values).to_dict()
-                    
                     behavior_to_plot_str = st.selectbox("Select Behavior to Plot", options=[str(k) for k in plot_definition_options.keys()], format_func=lambda x: plot_definition_options.get(int(x)))
                     period_to_plot = st.radio("Select Period", ["Weekly", "Monthly"], horizontal=True)
-
                 with plot_col2:
                     if 'behavior_to_plot_str' in locals() and behavior_to_plot_str:
                         behavior_to_plot = int(behavior_to_plot_str)
-                        
                         if period_to_plot == "Weekly":
                             avg_df = st.session_state.weekly_df
                             if not avg_df.empty:
                                 avg_df['Time Period'] = avg_df['year'].astype(str) + "-W" + avg_df['weekofyear'].astype(str).str.zfill(2)
                             x_axis, y_axis = 'Time Period', 'averagescore'
-                        else: # Monthly
+                        else:
                             avg_df = st.session_state.monthly_df
                             if not avg_df.empty:
                                 avg_df['Time Period'] = pd.to_datetime(avg_df[['year', 'month']].assign(DAY=1)).dt.strftime('%Y-%b')
                             x_axis, y_axis = 'Time Period', 'averagescore'
-
                         if 'Time Period' in avg_df:
                             plot_data = avg_df[avg_df['definitionid'] == behavior_to_plot].sort_values(by='Time Period')
                             if not plot_data.empty:
                                 fig = px.line(plot_data, x=x_axis, y=y_axis, title=f"{period_to_plot} Progress for {plot_definition_options.get(behavior_to_plot, 'N/A')}", markers=True, labels={x_axis: "Time Period", y_axis: "Average Score"})
-                                fig.update_yaxes(range=[0, 11])
-                                st.plotly_chart(fig, use_container_width=True)
+                                fig.update_yaxes(range=[0, 11]); st.plotly_chart(fig, use_container_width=True)
                             else:
                                 st.info("No calculated averages to plot for this specific behavior yet.")
 
@@ -158,10 +151,8 @@ if st.session_state["authentication_status"]:
                 if not user_subjects_df.empty:
                     with st.form("update_subject_form"):
                         subject_options = pd.Series(user_subjects_df['subjectlabel'].values, index=user_subjects_df['subjectid'].values).to_dict()
-                        # --- FIX: Convert keys to string for selectbox robustness ---
                         subject_options_keys_str = [str(k) for k in subject_options.keys()]
                         subject_to_edit_str = st.selectbox("Subject to Update", options=subject_options_keys_str, format_func=lambda x: subject_options.get(int(x)))
-                        
                         new_subject_label = st.text_input("New Name")
                         submitted_update = st.form_submit_button("Update Subject")
                         if submitted_update and subject_to_edit_str and new_subject_label:
@@ -169,24 +160,18 @@ if st.session_state["authentication_status"]:
                             st.success(f"Updated subject."); st.rerun()
                 else:
                     st.warning("No subjects to edit.")
-
             with st.expander("✏️ Update Behavior Definition"):
                  if not user_defs_df.empty:
                     with st.form("update_definition_form"):
-                        # --- FIX: Apply same robust pattern here ---
                         user_defs_df['mng_display_label'] = user_defs_df['subjectlabel'].fillna('') + " - " + user_defs_df['behaviorname'].fillna('')
                         def_options = pd.Series(user_defs_df['mng_display_label'].values, index=user_defs_df['definitionid'].values).to_dict()
-                        
                         def_options_keys_str = [str(k) for k in def_options.keys()]
                         def_to_edit_str = st.selectbox("Definition to Update", options=def_options_keys_str, format_func=lambda x: def_options.get(int(x)))
-                        
-                        current_name = ""
-                        current_desc = ""
+                        current_name, current_desc = "", ""
                         if def_to_edit_str:
                             def_to_edit = int(def_to_edit_str)
                             current_name = user_defs_df.loc[user_defs_df['definitionid'] == def_to_edit, 'behaviorname'].iloc[0] if not user_defs_df.loc[user_defs_df['definitionid'] == def_to_edit].empty else ""
                             current_desc = user_defs_df.loc[user_defs_df['definitionid'] == def_to_edit, 'description'].iloc[0] if not user_defs_df.loc[user_defs_df['definitionid'] == def_to_edit].empty else ""
-                        
                         new_def_name = st.text_input("New Behavior Name", value=current_name)
                         new_def_desc = st.text_area("New Description", value=current_desc)
                         submitted_def_update = st.form_submit_button("Update Definition")
@@ -200,36 +185,26 @@ if st.session_state["authentication_status"]:
             with st.expander("🗑️ Delete Subject"):
                 if not user_subjects_df.empty:
                     with st.form("delete_subject_form"):
-                        # --- FIX: Apply same robust pattern here ---
                         subject_options_del = pd.Series(user_subjects_df['subjectlabel'].values, index=user_subjects_df['subjectid'].values).to_dict()
                         subject_del_keys_str = [str(k) for k in subject_options_del.keys()]
                         subject_to_delete_str = st.selectbox("Subject to Delete", options=subject_del_keys_str, format_func=lambda x: subject_options_del.get(int(x)))
-                        
                         confirmation = st.checkbox("I am sure. This deletes the subject and ALL its data.")
                         submitted_del = st.form_submit_button("Delete Subject Permanently")
                         if submitted_del and subject_to_delete_str and confirmation:
                             tracker.delete_subject(username, int(subject_to_delete_str))
                             st.success(f"Deleted subject."); st.rerun()
-                else:
-                    st.warning("No subjects to delete.")
-
             with st.expander("🗑️ Delete Behavior Definition"):
                 if not user_defs_df.empty:
                     with st.form("delete_definition_form"):
-                        # --- FIX: Apply same robust pattern here ---
                         user_defs_df['del_display_label'] = user_defs_df['subjectlabel'].fillna('') + " - " + user_defs_df['behaviorname'].fillna('')
                         def_options_del = pd.Series(user_defs_df['del_display_label'].values, index=user_defs_df['definitionid'].values).to_dict()
-                        
                         def_del_keys_str = [str(k) for k in def_options_del.keys()]
                         def_to_delete_str = st.selectbox("Definition to Delete", options=def_del_keys_str, format_func=lambda x: def_options_del.get(int(x)))
-
                         conf_del_def = st.checkbox("I am sure. This deletes the definition and its scores.")
                         submitted_del_def = st.form_submit_button("Delete Definition Permanently")
                         if submitted_del_def and def_to_delete_str and conf_del_def:
                             tracker.delete_definition(username, int(def_to_delete_str))
                             st.success("Deleted definition."); st.rerun()
-                else:
-                    st.warning("No definitions to delete.")
 
     with tab3:
         st.header("Raw Data Views")
@@ -239,6 +214,16 @@ if st.session_state["authentication_status"]:
         st.dataframe(user_defs_df)
         st.subheader("Daily Scores Log")
         st.dataframe(tracker.get_daily_scores(username))
+
+    with tab4:
+        st.header("Submit Feedback")
+        st.write("Find a bug or have a suggestion? Let us know!")
+        with st.form("feedback_form", clear_on_submit=True):
+            feedback_text = st.text_area("Your feedback:", height=150)
+            submitted_feedback = st.form_submit_button("Submit Feedback")
+            if submitted_feedback and feedback_text:
+                tracker.submit_feedback(username, feedback_text)
+                st.success("Thank you! Your feedback has been submitted.")
 
 elif st.session_state["authentication_status"] is False:
     st.error('Username/password is incorrect')

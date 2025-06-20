@@ -2,7 +2,7 @@
 
 import requests
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 
 class BehaviorTracker:
     def __init__(self, base_api_url: str):
@@ -57,6 +57,10 @@ class BehaviorTracker:
     def log_score(self, username: str, definition_id: int, score_date: date, score: int, notes: str = ""):
         payload = {"definition_id": definition_id, "score_date": score_date.isoformat(), "score": score, "notes": notes}
         return self._make_request("post", "/scores", json=payload)
+    
+    def submit_feedback(self, username: str, feedback_text: str):
+        """Submits user feedback by calling the API."""
+        return self._make_request("post", "/feedback", json={"feedback_text": feedback_text})
         
     # --- EDITING METHODS ---
     def update_subject(self, username: str, subject_id: int, new_label: str):

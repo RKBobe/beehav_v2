@@ -17,7 +17,7 @@ try:
         raise ValueError("SUPABASE_CONNECTION_STRING not found in .env file or environment variables.")
     engine = create_engine(DB_CONNECTION_STRING)
 except Exception as e:
-    print(f"� FAILED TO CREATE DATABASE ENGINE: {e}")
+    print(f"🔥 FAILED TO CREATE DATABASE ENGINE: {e}")
     engine = None
 
 # --- Pydantic Models (Data Validation) ---
@@ -53,13 +53,56 @@ class Averages(BaseModel):
     weekly: list[dict]
     monthly: list[dict]
 
+class FeedbackCreate(BaseModel):
+    feedback_text: str
+
 # --- FastAPI App Instance ---
 app = FastAPI()
 
+# --- NEW: Database Initialization on Startup ---
+@app.on_event("startup")
+def on_startup():
+    """Ensures all database tables exist when the API starts."""
+    if engine is None:
+        print("Skipping database initialization because engine failed to create.")
+        return
+        
+    print("--- Verifying database tables on startup ---")
+    create_subjects_table = text("""
+    CREATE TABLE IF NOT EXISTS subjects (
+        SubjectID SERIAL PRIMARY KEY, username TEXT NOT NULL, SubjectLabel TEXT NOT NULL,
+        DateCreated TIMESTAMPTZ DEFAULT NOW()
+    );""")
+    create_definitions_table = text("""
+    CREATE TABLE IF NOT EXISTS definitions (
+        DefinitionID SERIAL PRIMARY KEY, SubjectID INT REFERENCES subjects(SubjectID) ON DELETE CASCADE,
+        username TEXT NOT NULL, BehaviorName TEXT NOT NULL, Description TEXT
+    );""")
+    create_scores_table = text("""
+    CREATE TABLE IF NOT EXISTS daily_scores (
+        LogID SERIAL PRIMARY KEY, DefinitionID INT REFERENCES definitions(DefinitionID) ON DELETE CASCADE,
+        username TEXT NOT NULL, Date DATE NOT NULL, Score INT, Notes TEXT
+    );""")
+    create_feedback_table = text("""
+    CREATE TABLE IF NOT EXISTS feedback (
+        FeedbackID SERIAL PRIMARY KEY, username TEXT NOT NULL, submitted_at TIMESTAMPTZ DEFAULT NOW(),
+        feedback_text TEXT
+    );""")
+    
+    try:
+        with engine.connect() as connection:
+            connection.execute(create_subjects_table)
+            connection.execute(create_definitions_table)
+            connection.execute(create_scores_table)
+            connection.execute(create_feedback_table)
+            connection.commit()
+        print("--- Database tables verified successfully ---")
+    except Exception as e:
+        print(f"🔥 DATABASE TABLE CREATION FAILED: {e}")
+
+
 # --- "Dummy" Authentication ---
 def get_current_user():
-    # In a real app, this would come from a decoded JWT token.
-    # For now, it's hardcoded for development.
     return "RKBobe"
 
 # --- API Endpoints ---
@@ -136,7 +179,6 @@ def add_definition(definition: DefinitionCreate, current_user: str = Depends(get
             result = connection.execute(sql, params).mappings().first()
             connection.commit()
             if result:
-                # Fetch the full definition with the joined subjectlabel
                 return _get_single_definition(connection, current_user, result['definitionid'])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -230,5 +272,18 @@ def get_averages(current_user: str = Depends(get_current_user)):
         monthly_avg.rename(columns={'mean': 'averagescore', 'count': 'datapointscount'}, inplace=True)
 
         return {"weekly": weekly_avg.to_dict('records'), "monthly": monthly_avg.to_dict('records')}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- Feedback Endpoint ---
+@app.post("/feedback", status_code=status.HTTP_201_CREATED)
+def submit_feedback(feedback: FeedbackCreate, current_user: str = Depends(get_current_user)):
+    sql = text("INSERT INTO feedback (username, feedback_text) VALUES (:user, :text)")
+    params = {"user": current_user, "text": feedback.feedback_text}
+    try:
+        with engine.connect() as connection:
+            connection.execute(sql, params)
+            connection.commit()
+        return {"status": "success", "message": "Thank you for your feedback!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
