@@ -2,9 +2,11 @@ streamlit
 streamlit-authenticator
 bcrypt
 pandas
+plotly
 psycopg2-binary
 SQLAlchemy
+python-dotenv
+PyYAML
+requests
 fastapi
 uvicorn[standard]
-requests
-python-dotenv
