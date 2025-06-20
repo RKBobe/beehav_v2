@@ -18,18 +18,23 @@ try:
     with open('config.yaml') as file:
         config = yaml.load(file, Loader=SafeLoader)
     authenticator = stauth.Authenticate(
-        config['credentials'], config['cookie']['name'],
-        config['cookie']['key'], config['cookie']['expiry_days']
+        config['credentials'],
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days']
     )
 except FileNotFoundError:
-    st.error("`config.yaml` not found. Please ensure it is in your repository.")
+    st.error("Authentication configuration file (`config.yaml`) not found. Please ensure it exists in your repository.")
     st.stop()
 
 # --- Render Login Form FIRST ---
-authenticator.login()
+col1_login, col2_login, col3_login = st.columns([1,2,1])
+with col2_login:
+    authenticator.login()
 
 # --- THE LOGIN GATE ---
 if st.session_state["authentication_status"]:
+    # --- START OF LOGGED-IN APP ---
     st.sidebar.write(f'Welcome, *{st.session_state["name"]}*')
     authenticator.logout('Logout', 'sidebar')
     username = st.session_state["username"]
@@ -64,8 +69,8 @@ if st.session_state["authentication_status"]:
 
     with tab1: # Data Entry & Plotting
         st.header("1. Data Entry")
-        col1, col2 = st.columns(2)
-        with col1:
+        d_col1, d_col2 = st.columns(2)
+        with d_col1:
             with st.expander("➕ Add a New Subject"):
                 with st.form("add_subject_form", clear_on_submit=True):
                     new_subject_label = st.text_input("New Subject's Name")
@@ -85,7 +90,7 @@ if st.session_state["authentication_status"]:
                         if submitted and selected_subject_id and new_behavior_name:
                             tracker.add_behavior_definition(username, selected_subject_id, new_behavior_name)
                             st.success(f"Defined '{new_behavior_name}'."); st.rerun()
-        with col2:
+        with d_col2:
             with st.expander("📝 Log a Daily Score", expanded=True):
                 if user_defs_df.empty:
                     st.warning("Define a behavior first.")
@@ -205,7 +210,6 @@ if st.session_state["authentication_status"]:
                         if submitted_del_def and def_to_delete_str and conf_del_def:
                             tracker.delete_definition(username, int(def_to_delete_str))
                             st.success("Deleted definition."); st.rerun()
-
     with tab3:
         st.header("Raw Data Views")
         st.subheader("Subjects Table")
@@ -214,7 +218,7 @@ if st.session_state["authentication_status"]:
         st.dataframe(user_defs_df)
         st.subheader("Daily Scores Log")
         st.dataframe(tracker.get_daily_scores(username))
-
+    
     with tab4:
         st.header("Submit Feedback")
         st.write("Find a bug or have a suggestion? Let us know!")
@@ -225,7 +229,20 @@ if st.session_state["authentication_status"]:
                 tracker.submit_feedback(username, feedback_text)
                 st.success("Thank you! Your feedback has been submitted.")
 
+
 elif st.session_state["authentication_status"] is False:
     st.error('Username/password is incorrect')
+
 elif st.session_state["authentication_status"] is None:
-    st.warning('Please login. Contact an administrator to create an account.')
+    st.warning('Please login to continue.')
+    st.subheader("Don't have an account?")
+    try:
+        if authenticator.register_user(
+            fields={'Form name': 'New User Registration', 'Username': 'Username', 'Name': 'Full Name', 'Email': 'Email', 'Password': 'Password', 'Repeat Password': 'Confirm Password'},
+            location='main',
+        ):
+            with open('config.yaml', 'w') as file:
+                yaml.dump(config, file, default_flow_style=False)
+            st.success('User registered successfully! Please login above.')
+    except Exception as e:
+        st.error(e)
