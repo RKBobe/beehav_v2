@@ -23,3 +23,6 @@ __pycache__/
 
 # Ignore macOS folder attributes file.
 .DS_Store
+
+# Ignore environment file with secrets
+.env
